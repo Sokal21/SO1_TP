@@ -157,7 +157,7 @@ pcommand(Binary,Name,UserName,Node,Flag,Listener) ->
                                 'OBS' -> whereis(matchadm)!{spect,lists:nth(2,Command),UserName,self()},
                                          receive
                                              no_valid       -> {Name,Node}!no_valid_game;
-                                             espect_ok      -> {Name,Node}!spect_ok
+                                             spect_ok      -> {Name,Node}!spect_ok
                                          end;
     							  _   -> {Name,Node}!incorrect
     					    end
@@ -250,7 +250,7 @@ game(Player1,Player2,Turn,Board,Spects) ->
 																      global:send(Player1,{update,NewBoard}),
 																	  global:send(Player2,{update,NewBoard}),
 																	  lists:map(fun(S) -> global:send(S,{update,NewBoard}) end,Spects),
-																      game(Player1,Player2,false,NewBoard,Spects);
+																      game(Player1,Player2,true,NewBoard,Spects);
 																 _  -> global:send(Player1,no_valid),
                                                                        game(Player1,Player2,Turn,Board,Spects)
 										                   end;
