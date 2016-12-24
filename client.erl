@@ -3,14 +3,14 @@
 
 %% Starts the client, initializing the console.
 
-start(Host, Port) -> 
+start(Host, Port) ->
     {ok,Socket} = gen_tcp:connect(Host, Port, [{active,false}, {packet,0}]),
     io:format("Hola bigote, bienvenido al sv del doni. Registate, no seas Lucio.~n"),
     spawn(?MODULE,listener,[Socket]),
     console(Socket).
 
 %% A console. As all of them. Here goes the commands.
-console (Socket) -> 
+console (Socket) ->
     Command = io:get_line("> "),
     gen_tcp:send(Socket,Command),
     receive after 500 -> ok end,
@@ -26,14 +26,17 @@ listener (Socket) ->
                                              exit(log_out);
                         "GAME"            -> io:format("Tu sala ha sido creada exitosamente.~n");
                         "TURN"            -> io:format("Es tu turno. ~n");
+                        "SPECT_OK"        -> io:format("has logrado entrar como espectado a la partida ~n");
+                        "JOIN"            -> io:format("te has unido a la partida correctamente ~n");
+                        "WELL_DELIVERED"  -> ok;
                         "NO_VALID"        -> io:format("No es tu turno, o la jugada no puede realizarse. ~n");
                         "LOG"             -> UserName = lists:nth(2, TokenList),
                                              io:format("Bienvenido " ++ UserName ++ ", te registraste correctamente. ~n");
-                        "LOG_FAIL"        -> io:format("El nombre de usuario ya está en uso. Elija otro.~n")
-                        "ALREADY_LOG"     -> UserName = lists:nth(2, TokeList),
+                        "LOG_FAIL"        -> io:format("El nombre de usuario ya está en uso. Elija otro.~n");
+                        "ALREADY_LOG"     -> UserName = lists:nth(2, TokenList),
                                              io:format("Ya estás conectado como" ++ UserName ++".~n");
                         "ALREADY_PLAYING" -> io:format("Ya estás en una sala.~n");
-                        "GAMES"           -> NewData = lists:substract(Data, "GAMES "),
+                        "GAMES"           -> NewData = lists:subtract(Data, "GAMES "),
                                              io:format(NewData);
                         "INCORRECT"       -> io:format("Comando incorrecto.~n");
                         "NO_VALID_GAME"   -> io:format("Sala no encontrada.~n");
@@ -45,7 +48,7 @@ listener (Socket) ->
 
 
 %% Pretty-printing for the table
-print_table (Table) -> 
+print_table (Table) ->
          io:format(aux(lists:nth(1,Table))),
          io:format(" | "),
          io:format(aux(lists:nth(2,Table))),
@@ -66,7 +69,7 @@ print_table (Table) ->
          io:format( "~n~n=============~n~n").
 
 %% Blame Erlang for this
-aux (Int) -> 
+aux (Int) ->
      case Int of
          88 -> "X";
          79 -> "O";
