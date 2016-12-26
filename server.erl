@@ -90,7 +90,8 @@ psocket(CSock,PidPbalance,UserName,Name,Flag,Listener) ->
                 {games,ListGames} -> gen_tcp:send(CSock,"GAMES "++ListGames);
                 no_valid_game -> gen_tcp:send(CSock,"NO_VALID_GAME ");
                 incorrect -> gen_tcp:send(CSock,"INCORRECT ");
-                end_spect_ok ->  gen_tcp:send(CSock,"END_SPECT_OK ")
+                end_spect_ok ->  gen_tcp:send(CSock,"END_SPECT_OK ");
+                no_valid_user -> gen_tcp:send(CSock,"NO_VALID_USER")
 			end;
         {error,closed} ->   error
 	end,
@@ -106,6 +107,7 @@ listener(CSock) ->
         no_rights_game -> gen_tcp:send(CSock,"NO_RIGHTS_GAME ");
         you_end_game -> gen_tcp:send(CSock,"YOU_END_GAME ");
         {opponent_end_game,UserName} -> gen_tcp:send(CSock,"OPPONENT_END_GAME "++atom_to_list(UserName));
+        {say,UserName,Msg} -> gen_tcp:send(CSock,"SAY "++atom_to_list(UserName)++" "++Msg);
         {end_spect,UserName,Game} -> gen_tcp:send(CSock,"END_SPECT "++atom_to_list(UserName)++" "++atom_to_list(Game))
 	end,
   listener(CSock).
@@ -169,6 +171,13 @@ pcommand(Binary,Name,UserName,Node,Flag,Listener) ->
                                              no_valid       -> {Name,Node}!no_valid_game;
                                              spect_ok      -> {Name,Node}!spect_ok
                                          end;
+                                'SAY' ->  User = lists:nth(2,Command),
+                                          Users = global:registered_names(),
+                                          case length(lists:filter(fun(X) -> X == User end,Users)) of
+                                              0 -> {Name,Node}!no_valid_user;
+                                              _ -> global:send(User,{say,UserName,lists:subtract(Binary,"SAY "++atom_to_list(User))}),
+                                                   {Name,Node}!well_delivered
+                                          end;
     							  _   -> {Name,Node}!incorrect
     					    end
     			end
