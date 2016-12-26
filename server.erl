@@ -76,20 +76,21 @@ psocket(CSock,PidPbalance,UserName,Name,Flag,Listener) ->
 			receive
 				{log,Usr} -> gen_tcp:send(CSock,"LOG "++atom_to_list(Usr)),
                              psocket(CSock,PidPbalance,Usr,Name,false,Listener);
-                log_fail  -> gen_tcp:send(CSock,"LOG_FAIL");
+                log_fail  -> gen_tcp:send(CSock,"LOG_FAIL ");
                 already_log -> gen_tcp:send(CSock,"ALREADY_LOG "++atom_to_list(UserName));
-                    not_log -> gen_tcp:send(CSock,"NOT_LOG");
-				    log_out ->  gen_tcp:send(CSock,"EXIT"),
+                    not_log -> gen_tcp:send(CSock,"NOT_LOG ");
+				    log_out ->  gen_tcp:send(CSock,"EXIT "),
                                 exit(log_out);
-				match_created -> gen_tcp:send(CSock,"GAME");
-                already_playing -> gen_tcp:send(CSock,"ALREADY_PLAYING");
-				joined -> gen_tcp:send(CSock,"JOIN");
-                well_delivered -> gen_tcp:send(CSock,"WELL_DELIVERED");
-                not_start -> gen_tcp:send(CSock,"NOT_START");
-                spect_ok  -> gen_tcp:send(CSock,"SPECT_OK");
+				match_created -> gen_tcp:send(CSock,"GAME ");
+                already_playing -> gen_tcp:send(CSock,"ALREADY_PLAYING ");
+				joined -> gen_tcp:send(CSock,"JOIN ");
+                well_delivered -> gen_tcp:send(CSock,"WELL_DELIVERED ");
+                not_start -> gen_tcp:send(CSock,"NOT_START ");
+                spect_ok  -> gen_tcp:send(CSock,"SPECT_OK ");
                 {games,ListGames} -> gen_tcp:send(CSock,"GAMES "++ListGames);
-                no_valid_game -> gen_tcp:send(CSock,"NO_VALID_GAME");
-                incorrect -> gen_tcp:send(CSock,"INCORRECT")
+                no_valid_game -> gen_tcp:send(CSock,"NO_VALID_GAME ");
+                incorrect -> gen_tcp:send(CSock,"INCORRECT ");
+                end_spect_ok ->  gen_tcp:send(CSock,"END_SPECT_OK ")
 			end;
         {error,closed} ->   error
 	end,
@@ -99,9 +100,13 @@ psocket(CSock,PidPbalance,UserName,Name,Flag,Listener) ->
 
 listener(CSock) ->
 	receive
-		{update,Board} -> gen_tcp:send(CSock,"UPD "++Board);
-		turn -> gen_tcp:send(CSock,"TURN");
-		no_valid -> gen_tcp:send(CSock,"NO_VALID")
+		{update,Board,Game} -> gen_tcp:send(CSock,"UPD "++Board++" "++atom_to_list(Game));
+		turn -> gen_tcp:send(CSock,"TURN ");
+		no_valid -> gen_tcp:send(CSock,"NO_VALID ");
+        no_rights_game -> gen_tcp:send(CSock,"NO_RIGHTS_GAME ");
+        you_end_game -> gen_tcp:send(CSock,"YOU_END_GAME ");
+        {opponent_end_game,UserName} -> gen_tcp:send(CSock,"OPPONENT_END_GAME "++atom_to_list(UserName));
+        {end_spect,UserName,Game} -> gen_tcp:send(CSock,"END_SPECT "++atom_to_list(UserName)++" "++atom_to_list(Game))
 	end,
   listener(CSock).
 
@@ -109,7 +114,7 @@ listener(CSock) ->
 
 user(Listener,ListenerNode) ->
     receive
-        kill -> ok;
+        kill -> exit(log_out);
          M   -> {Listener,ListenerNode}!M
     end,
     user(Listener,ListenerNode).
@@ -148,12 +153,17 @@ pcommand(Binary,Name,UserName,Node,Flag,Listener) ->
                                             no_valid -> {Name,Node}!no_valid_game;
                                             already_playing -> {Name,Node}!already_playing
     									 end;
-    							'PLA' -> whereis(matchadm)!{movement,lists:nth(2,Command),atom_to_integer(lists:nth(3,Command)),atom_to_integer(lists:nth(4,Command)),UserName,self()},
-    							         receive
-                                             well_delivered -> {Name,Node}!well_delivered;
-                                             no_valid       -> {Name,Node}!no_valid_game;
-                                             not_start      -> {Name,Node}!not_start
-                                         end;
+    							'PLA' -> case lists:nth(3,Command) of
+                                            'END' -> whereis(matchadm)!{ending,lists:nth(2,Command),UserName,self()};
+                                             _    -> whereis(matchadm)!{movement,lists:nth(2,Command),atom_to_integer(lists:nth(3,Command)),atom_to_integer(lists:nth(4,Command)),UserName,self()}
+                                         end,
+						                 receive
+                                            well_delivered -> {Name,Node}!well_delivered;
+                                            no_valid       -> {Name,Node}!no_valid_game;
+                                            not_start      -> {Name,Node}!not_start
+                                        end;
+                                'LEA' -> whereis(matchadm)!{end_spect,lists:nth(2,Command),UserName,self()},
+                                         {Name,Node}!end_spect_ok;
                                 'OBS' -> whereis(matchadm)!{spect,lists:nth(2,Command),UserName,self()},
                                          receive
                                              no_valid       -> {Name,Node}!no_valid_game;
@@ -185,13 +195,24 @@ match_adm(Games,Cont) ->
                                             _ -> {_,P2,GameName,GameNode} = lists:nth(1,PosibleGame),
                                                  case P2 of
                                                      none -> {GameName,GameNode}!{join,UserName},
-													         lists:map(fun(X) -> {matchadm,X}!{join_refresh,UserName,Game} end,nodes()),
+													         lists:map(fun(X) -> {matchadm,X}!{join_refresh,Game,UserName} end,nodes()),
 													         PidCom!joined,
 											     		     match_adm(lists:map(fun(X) -> actualization(X,Game,UserName) end,Games),Cont);
                                                       _   -> PidCom!no_valid
                                                  end
                                         end;
-  	    {ending,UserName} -> ok;
+  	    {ending,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
+                             PidCom!well_delivered,
+                             case PosibleGame of
+                                [] -> PidCom!no_valid;
+                                _ -> {P1,P2,GameName,GameNode} = lists:nth(1,PosibleGame),
+                                     case (P1 == UserName) or (P2 == UserName) of
+                                         true -> {GameName, GameNode}!{ending,UserName},
+                                                  lists:map(fun(X) -> {matchadm,X}!{end_refresh,Game} end,nodes()),
+                                                  match_adm(lists:filter(fun ({G,_,_,_}) -> G /= P1 end ,Games),Cont);
+                                         false -> gloabl:send(UserName,no_rights_game)
+                                     end
+                              end;
 		{spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
 		                                case PosibleGame of
                                             [] -> PidCom!no_valid;
@@ -199,6 +220,14 @@ match_adm(Games,Cont) ->
                                                   {GameName,GameNode}!{spect,UserName},
 									              PidCom!spect_ok
                                         end;
+        {end_refresh,Game} -> match_adm(lists:filter(fun ({G,_,_,_}) -> G /= Game end ,Games),Cont);
+        {end_spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
+		                                    case PosibleGame of
+                                                [] -> PidCom!no_valid;
+                                                _  -> {_,_,GameName,GameNode} = lists:nth(1,PosibleGame),
+                                                      {GameName,GameNode}!{end_spect,UserName},
+									                  PidCom!end_spect
+                                            end;
 		{refresh,NewGame} -> match_adm(Games++NewGame,Cont);
 		{join_refresh,Game,UserName} -> match_adm(lists:map(fun(X) -> actualization(X,Game,UserName) end,Games),Cont);
         {movement,Game,X,Y,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
@@ -219,20 +248,22 @@ match(Player1,Player2,Spects) ->
 	case Player2 of
 		none -> receive
 		          {spect,SpectUser}  -> match(Player1,Player2,Spects++[SpectUser]);
-	              {join,UserName} -> game(Player1,UserName,true,"---------",Spects)
+	              {join,UserName} -> global:send(Player1,turn),game(Player1,UserName,true,"---------",Spects);
+                  {ending,UserName} -> global:send(UserName,you_end_game)
 			    end
   end.
 
 game(Player1,Player2,Turn,Board,Spects) ->
 	case Turn of
-		true -> global:send(Player1,turn),
+		true ->
                 receive
 				{movement,X,Y,User} -> if
 				                        User == Player1 -> case lists:nth((3*(X-1)+Y),Board) of
 								                                45 -> NewBoard = replace((3*(X-1)+Y),Board,"X"),
-																      global:send(Player1,{update,NewBoard}),
-																	  global:send(Player2,{update,NewBoard}),
-																	  lists:map(fun(S) -> global:send(S,{update,NewBoard}) end,Spects),
+																      global:send(Player1,{update,NewBoard,Player1}),
+																	  global:send(Player2,{update,NewBoard,Player1}),
+																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Player1}) end,Spects),
+                                                                      global:send(Player2,turn),
 																      game(Player1,Player2,false,NewBoard,Spects);
 																 _  -> global:send(Player1,no_valid),
                                                                        game(Player1,Player2,Turn,Board,Spects)
@@ -240,23 +271,38 @@ game(Player1,Player2,Turn,Board,Spects) ->
 											true -> global:send(User,no_valid),
                                                     game(Player1,Player2,Turn,Board,Spects)
                                         end;
-				{spect,SpectUSer} -> game(Player1,Player2,Turn,Board,Spects++[SpectUSer])
+				{spect,SpectUSer} -> game(Player1,Player2,Turn,Board,Spects++[SpectUSer]);
+                {end_spect,SpectUSer} -> game(Player1,Player2,Turn,Board,lists:filter(fun(X) -> SpectUSer /= X end,Spects));
+                {ending,UserName} -> global:send(UserName,you_end_game),
+                                     if
+                                        UserName == Player1 -> global:send(Player2,{opponent_end_game,UserName});
+                                        true -> global:send(Player1,{opponent_end_game,UserName})
+                                    end,
+                                    lists:map(fun(S) -> global:send(S,{end_spect,UserName,Player1}) end,Spects)
 				end;
-		false -> global:send(Player2,turn),
+		false ->
                 receive
 				{movement,X,Y,User} -> if
 				                        User == Player2 -> case lists:nth((3*(X-1)+Y),Board) of
 								                                45 -> NewBoard = replace((3*(X-1)+Y),Board,"O"),
-																      global:send(Player1,{update,NewBoard}),
-																	  global:send(Player2,{update,NewBoard}),
-																	  lists:map(fun(S) -> global:send(S,{update,NewBoard}) end,Spects),
+																      global:send(Player1,{update,NewBoard,Player1}),
+																	  global:send(Player2,{update,NewBoard,Player1}),
+																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Player1}) end,Spects),
+                                                                      global:send(Player1,turn),
 																      game(Player1,Player2,true,NewBoard,Spects);
-																 _  -> global:send(Player1,no_valid),
+																 _  -> global:send(Player2,no_valid),
                                                                        game(Player1,Player2,Turn,Board,Spects)
 										                   end;
 											true -> global:send(User,no_valid),
                                                     game(Player1,Player2,Turn,Board,Spects)
                                         end;
+                {ending,UserName} -> global:send(UserName,you_end_game),
+                                     if
+                                        UserName == Player1 -> global:send(Player2,{opponent_end_game,UserName});
+                                        true -> global:send(Player1,{opponent_end_game,UserName})
+                                    end,
+                                    lists:map(fun(S) -> global:send(S,{end_spect,UserName,Player1}) end,Spects);
+                {end_spect,SpectUSer} -> game(Player1,Player2,Turn,Board,lists:filter(fun(X) -> SpectUSer /= X end,Spects));
 				{spect,SpectUSer} -> game(Player1,Player2,Turn,Board,Spects++[SpectUSer])
 				end
 	end.
