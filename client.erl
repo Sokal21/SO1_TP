@@ -57,6 +57,10 @@ listener (Socket, Pid) ->
                                                io:format("El usuario " ++ UserName ++ " terminó la partida de " ++ NameGame ++ ".~n");
                         "END_SPECT_OK"      -> io:format("Has dejado de observar la partida.~n");
                         "YOU_END_GAME"      -> io:format("Te has retirado de la sala.~n");
+                        "NO_VALID_USER"     -> io:format("El usuario no existe.~n");
+                        "SAY"               -> UserName = lists:nth(2, TokenList),
+                                               Message = lists:subtract(Data, "SAY "++ UserName),
+                                               io:format("El usuario " ++ UserName ++ " dice:" ++Message );
                          M                  -> io:format("Error: {~p,~p}~n",[M,Data])
                       end;
         {error, closed} -> io:format("Error recibiendo respuesta del servidor (gen_tcp:recv)")
