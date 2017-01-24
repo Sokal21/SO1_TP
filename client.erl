@@ -61,6 +61,9 @@ listener (Socket, Pid) ->
                         "SAY"               -> UserName = lists:nth(2, TokenList),
                                                Message = lists:subtract(Data, "SAY "++ UserName),
                                                io:format("El usuario " ++ UserName ++ " dice:" ++Message );
+                        "WIN"               -> UserName = lists:nth(2,TokenList),
+                                               NameGame = lists:nth(3,TokenList),
+                                               io:format("El usuario " ++ UserName ++ " ganó la partida de " ++ NameGame ++ ".~n");
                          M                  -> io:format("Error: {~p,~p}~n",[M,Data])
                       end;
         {error, closed} -> io:format("Error recibiendo respuesta del servidor (gen_tcp:recv)")

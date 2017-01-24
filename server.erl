@@ -21,7 +21,7 @@ server(Port) ->
   	spawn(?MODULE, stat, [PidPbalance]),
   	dispatcher(LSock,PidPbalance,1).
 
-% Dispacher se encarga de aceptar la conexiones que llegan
+% Dispatcher se encarga de aceptar la conexiones que llegan
 % y spawnear un proceso Socket para establcer la comunicacion con el cliente
 
 dispatcher(LSock,PidPbalance,Cont) ->
@@ -62,7 +62,7 @@ stat(PidPbalance) ->
     stat(PidPbalance).
 
 % Psocket se encarga de recibir los comandos enviados por el cliente
-% y spawnea pocommand en el nodo menos cargado
+% y spawnea pcommand en el nodo menos cargado
 
 psocket(CSock,PidPbalance,UserName,Name,Flag,Listener) ->
 	case gen_tcp:recv(CSock,0) of
@@ -101,6 +101,7 @@ psocket(CSock,PidPbalance,UserName,Name,Flag,Listener) ->
 
 listener(CSock) ->
 	receive
+        {victory, Player, Game} -> gen_tcp:send(CSock, "WIN "++atom_to_list(Player)++" "++atom_to_list(Game));
 		{update,Board,Game} -> gen_tcp:send(CSock,"UPD "++Board++" "++atom_to_list(Game));
 		turn -> gen_tcp:send(CSock,"TURN ");
 		no_valid -> gen_tcp:send(CSock,"NO_VALID ");
@@ -272,8 +273,14 @@ game(Player1,Player2,Turn,Board,Spects) ->
 																      global:send(Player1,{update,NewBoard,Player1}),
 																	  global:send(Player2,{update,NewBoard,Player1}),
 																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Player1}) end,Spects),
-                                                                      global:send(Player2,turn),
-																      game(Player1,Player2,false,NewBoard,Spects);
+                                                                      case someoneWon(NewBoard) of
+																            true -> global:send(Player1,{victory, Player1, Player1}),
+																	                global:send(Player2,{victory, Player1, Player1}),
+																	                lists:map(fun(S) -> global:send(S,{victory, Player1, Player1}) end,Spects);
+                                                   
+                                                                            false -> global:send(Player2,turn),
+																                     game(Player1,Player2,false,NewBoard,Spects)
+                                                                      end;
 																 _  -> global:send(Player1,no_valid),
                                                                        game(Player1,Player2,Turn,Board,Spects)
 										                   end;
@@ -297,8 +304,13 @@ game(Player1,Player2,Turn,Board,Spects) ->
 																      global:send(Player1,{update,NewBoard,Player1}),
 																	  global:send(Player2,{update,NewBoard,Player1}),
 																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Player1}) end,Spects),
-                                                                      global:send(Player1,turn),
-																      game(Player1,Player2,true,NewBoard,Spects);
+                                                                      case someoneWon(NewBoard) of
+																            true -> global:send(Player1,{victory, Player2, Player1}),
+																	                global:send(Player2,{victory, Player2, Player1}),
+																	                lists:map(fun(S) -> global:send(S,{victory, Player2, Player1}) end,Spects);
+                                                                            false -> global:send(Player1,turn),
+																                     game(Player1,Player2,true,NewBoard,Spects)
+                                                                      end;
 																 _  -> global:send(Player2,no_valid),
                                                                        game(Player1,Player2,Turn,Board,Spects)
 										                   end;
@@ -319,10 +331,10 @@ game(Player1,Player2,Turn,Board,Spects) ->
 replace(N,List,Token) ->
 	case N of
 		1 -> Token++lists:nthtail(1,List);
-		_ -> puto(lists:nth(1,List))++replace(N-1,lists:nthtail(1,List),Token)
+		_ -> change(lists:nth(1,List))++replace(N-1,lists:nthtail(1,List),Token)
 	end.
 
-puto(X) ->
+change(X) ->
 	case X of
 		45  -> "-";
 		88  -> "X";
@@ -348,6 +360,25 @@ match_print(G) ->
 		{P1,none,_,_} -> io_lib:format("La partida de ~p busca contricante ~n",[P1]);
 		{P1,P2,_,_} -> io_lib:format("La partida de ~p esta en curso. ~p VS ~p ~n",[P1,P1,P2])
 	end.
+
+% someoneWon verifica si alguien gano al realizar su movimiento
+
+someoneWon(Board) -> 
+    rowWin(Board) or columnWin(Board) or diagWin(Board).
+
+rowWin(Board) ->
+    ((lists:nth(1,Board) == lists:nth(2,Board)) and (lists:nth(2,Board) == lists:nth(3,Board))) or 
+    ((lists:nth(4,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(6,Board))) or 
+    ((lists:nth(7,Board) == lists:nth(8,Board)) and (lists:nth(8,Board) == lists:nth(9,Board))). 
+
+columnWin(Board) ->
+    ((lists:nth(1,Board) == lists:nth(4,Board)) and (lists:nth(4,Board) == lists:nth(7,Board))) or 
+    ((lists:nth(2,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(8,Board))) or 
+    ((lists:nth(3,Board) == lists:nth(6,Board)) and (lists:nth(6,Board) == lists:nth(9,Board))). 
+
+diagWin(Board) ->
+    ((lists:nth(1,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(9,Board))) or 
+    ((lists:nth(7,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(3,Board))). 
 
 % Is_in verifica si un usuario ya tiene una partida activa
 
