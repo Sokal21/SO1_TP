@@ -1,6 +1,10 @@
 -module(server).
 -compile(export_all).
 
+%% BYE
+%% Malos argumentos de los clientes
+%% flopiTURN
+
 % Start facilita la creacion de los servers
 
 start(Name,Port) ->
@@ -367,18 +371,18 @@ someoneWon(Board) ->
     rowWin(Board) or columnWin(Board) or diagWin(Board).
 
 rowWin(Board) ->
-    ((lists:nth(1,Board) == lists:nth(2,Board)) and (lists:nth(2,Board) == lists:nth(3,Board))) or 
-    ((lists:nth(4,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(6,Board))) or 
-    ((lists:nth(7,Board) == lists:nth(8,Board)) and (lists:nth(8,Board) == lists:nth(9,Board))). 
+    ((lists:nth(1,Board) == lists:nth(2,Board)) and (lists:nth(2,Board) == lists:nth(3,Board)) and (lists:nth(1,Board) /= 45)) or 
+    ((lists:nth(4,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(6,Board)) and (lists:nth(4,Board) /= 45)) or 
+    ((lists:nth(7,Board) == lists:nth(8,Board)) and (lists:nth(8,Board) == lists:nth(9,Board)) and (lists:nth(7,Board) /= 45)). 
 
 columnWin(Board) ->
-    ((lists:nth(1,Board) == lists:nth(4,Board)) and (lists:nth(4,Board) == lists:nth(7,Board))) or 
-    ((lists:nth(2,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(8,Board))) or 
-    ((lists:nth(3,Board) == lists:nth(6,Board)) and (lists:nth(6,Board) == lists:nth(9,Board))). 
+    ((lists:nth(1,Board) == lists:nth(4,Board)) and (lists:nth(4,Board) == lists:nth(7,Board)) and (lists:nth(1,Board) /= 45)) or 
+    ((lists:nth(2,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(8,Board)) and (lists:nth(2,Board) /= 45)) or 
+    ((lists:nth(3,Board) == lists:nth(6,Board)) and (lists:nth(6,Board) == lists:nth(9,Board)) and (lists:nth(3,Board) /= 45)). 
 
 diagWin(Board) ->
-    ((lists:nth(1,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(9,Board))) or 
-    ((lists:nth(7,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(3,Board))). 
+    ((lists:nth(1,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(9,Board)) and (lists:nth(1,Board) /= 45)) or 
+    ((lists:nth(7,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(3,Board)) and (lists:nth(7,Board) /= 45)). 
 
 % Is_in verifica si un usuario ya tiene una partida activa
 
