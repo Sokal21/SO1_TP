@@ -19,7 +19,7 @@ server(Port) ->
   	PidPbalance = spawn(?MODULE, pbalance, [statistics(total_active_tasks),node()]),
   	register(pbalance,PidPbalance),
 
-  	PidMatch = spawn(?MODULE, match_adm, [[],1]),
+  	PidMatch = spawn(?MODULE, match_adm, [[]]),
     register(matchadm,PidMatch),
 
   	spawn(?MODULE, stat, [PidPbalance]),
@@ -115,6 +115,7 @@ listener(CSock) ->
         {say,UserName,Msg} -> gen_tcp:send(CSock,"SAY "++atom_to_list(UserName)++" "++Msg);
         {end_spect,UserName,Game} -> gen_tcp:send(CSock,"END_SPECT "++atom_to_list(UserName)++" "++atom_to_list(Game))
 	end,
+  receive after 1000 -> ok end,
   listener(CSock).
 
 % User se encarga de garantizar que los nombres de los usuarios sean unicos
@@ -145,7 +146,7 @@ pcommand(Binary,Name,UserName,Node,Flag,Listener) ->
                     true  -> {Name,Node}!not_log;
     				false -> case M of
 				                'BYE' -> global:send(UserName,kill),{Name,Node}!log_out;
-    							'NEW' -> whereis(matchadm)!{new,UserName,self()},
+    							'NEW' -> whereis(matchadm)!{new,lists:nth(2,Command),UserName,self()},
     									 receive
     									    created -> {Name,Node}!match_created;
                                             already_playing -> {Name,Node}!already_playing
@@ -191,135 +192,128 @@ pcommand(Binary,Name,UserName,Node,Flag,Listener) ->
 % Match_adm se encarga de administrar las partidas
 % crear las nuevas salas, unir a los jugadores y recibir las jugadas
 
-match_adm(Games,Cont) ->
-	NameG = list_to_atom("match"++integer_to_list(Cont)),
+match_adm(Games) ->
 	receive
-		{new,UserName,PidCom} -> case is_in(UserName,Games) of
-                                     true -> PidCom!already_playing;
-                                     false -> NewGame = [{UserName,none,NameG,node()}],
-                                              PidGame = spawn(?MODULE, match,[UserName,none,[]]),
-	                                          register(NameG,PidGame),
-                 		    	              PidCom!created,
-                                              lists:map(fun(X) -> {matchadm,X}!{refresh,NewGame} end,nodes()),
-								              match_adm(Games++NewGame,Cont+1)
-                                 end;
-		{join,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
+		{new,MatchName,UserName,PidCom} -> PidGame = spawn(?MODULE, match,[UserName,none,[],MatchName]),
+                                           NewGame = [{MatchName,UserName,none}],
+                                           case global:register_name(MatchName, PidGame) of
+                                              yes -> PidCom!created,
+                                                     lists:map(fun(X) -> {matchadm,X}!{refresh,NewGame} end,nodes()),
+                                                     match_adm(Games++NewGame);
+                                              no -> PidCom!already_playing,
+                                                    PidGame!kill
+                                           end;
+		{join,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({G,_,_}) -> Game == G end,Games),
                                        case PosibleGame of
                                            [] -> PidCom!no_valid;
-                                            _ -> {_,P2,GameName,GameNode} = lists:nth(1,PosibleGame),
+                                            _ -> {_,_,P2} = lists:nth(1,PosibleGame),
                                                  case P2 of
-                                                     none -> {GameName,GameNode}!{join,UserName},
+                                                     none -> global:send(Game,{join,UserName}),
 													         lists:map(fun(X) -> {matchadm,X}!{join_refresh,Game,UserName} end,nodes()),
 													         PidCom!joined,
-											     		     match_adm(lists:map(fun(X) -> actualization(X,Game,UserName) end,Games),Cont);
+											     		     match_adm(lists:map(fun(X) -> actualization(X,Game,UserName) end,Games));
                                                       _   -> PidCom!no_valid
                                                  end
                                         end;
-  	    {ending,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
+  	    {ending,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({G,_,_}) -> Game == G end,Games),
                              PidCom!well_delivered,
                              case PosibleGame of
                                 [] -> PidCom!no_valid;
-                                _ -> {P1,P2,GameName,GameNode} = lists:nth(1,PosibleGame),
+                                _ -> {G,P1,P2} = lists:nth(1,PosibleGame),
                                      case (P1 == UserName) or (P2 == UserName) of
-                                         true -> {GameName, GameNode}!{ending,UserName},
-                                                  lists:map(fun(X) -> {matchadm,X}!{end_refresh,Game} end,nodes()),
-                                                  match_adm(lists:filter(fun ({G,_,_,_}) -> G /= P1 end ,Games),Cont);
+                                         true -> global:send(G,{ending,UserName}),
+                                                 lists:map(fun(X) -> {matchadm,X}!{end_refresh,Game} end,nodes()),
+                                                 match_adm(lists:filter(fun ({X,_,_}) -> X /= Game end ,Games));
                                          false -> gloabl:send(UserName,no_rights_game)
                                      end
                               end;
-		{spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
+		{spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({G,_,_,_,_}) -> Game == G end,Games),
 		                                case PosibleGame of
                                             [] -> PidCom!no_valid;
-                                            _  -> {_,_,GameName,GameNode} = lists:nth(1,PosibleGame),
-                                                  {GameName,GameNode}!{spect,UserName},
+                                            _  -> {G,_,_} = lists:nth(1,PosibleGame),
+                                                  global:send(G,{spect,UserName}),
 									              PidCom!spect_ok
                                         end;
-        {end_refresh,Game} -> match_adm(lists:filter(fun ({G,_,_,_}) -> G /= Game end ,Games),Cont);
-        {end_spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
+        {end_refresh,Game} -> match_adm(lists:filter(fun ({G,_,_}) -> G /= Game end ,Games));
+        {end_spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({G,_,_}) -> Game == G end,Games),
 		                                    case PosibleGame of
                                                 [] -> PidCom!no_valid;
-                                                _  -> {_,_,GameName,GameNode} = lists:nth(1,PosibleGame),
-                                                      {GameName,GameNode}!{end_spect,UserName},
+                                                _  -> {G,_,_} = lists:nth(1,PosibleGame),
+                                                      global:send(G,{end_spect,UserName}),
 									                  PidCom!end_spect
                                             end;
-		{refresh,NewGame} -> match_adm(Games++NewGame,Cont);
-		{join_refresh,Game,UserName} -> match_adm(lists:map(fun(X) -> actualization(X,Game,UserName) end,Games),Cont);
-        {movement,Game,X,Y,UserName,PidCom} -> PosibleGame = lists:filter(fun({P1,_,_,_}) -> Game == P1 end,Games),
-		                                       case PosibleGame of
-                                                   [] -> PidCom!no_valid;
-                                                   _  -> {_,P2,GameName,GameNode} = lists:nth(1,PosibleGame),
-                                                         case P2 of
-                                                            none -> PidCom!not_start;
-                                                            _ -> {GameName,GameNode}!{movement,X,Y,UserName},
-                                                                 PidCom!well_delivered
-                                                         end
-                                                end;
-		{list,PidCom} -> PidCom!{list,Games},match_adm(Games,Cont)
+		{refresh,NewGame} -> match_adm(Games++NewGame);
+		{join_refresh,Game,UserName} -> match_adm(lists:map(fun(X) -> actualization(X,Game,UserName) end,Games));
+        {movement,Game,X,Y,UserName,PidCom} -> PidCom!well_delivered,
+                                               global:send(Game,{movement,X,Y,UserName});
+		{list,PidCom} -> PidCom!{list,Games},match_adm(Games)
   end,
-  match_adm(Games,Cont).
+  match_adm(Games).
 
-match(Player1,Player2,Spects) ->
+match(Player1,Player2,Spects,Name) ->
 	case Player2 of
 		none -> receive
-		          {spect,SpectUser}  -> match(Player1,Player2,Spects++[SpectUser]);
-	              {join,UserName} -> global:send(Player1,turn),game(Player1,UserName,true,"---------",Spects);
-                  {ending,UserName} -> global:send(UserName,you_end_game)
+		          {spect,SpectUser}  -> match(Player1,Player2,Spects++[SpectUser],Name);
+                  {movement,_,_,UserName} -> global:send(UserName,not_start);
+	              {join,UserName} -> global:send(Player1,turn),game(Player1,UserName,true,"---------",Spects,Name);
+                  {ending,UserName} -> global:send(UserName,you_end_game);
+                  kill -> ok
 			    end
   end.
 
-game(Player1,Player2,Turn,Board,Spects) ->
+game(Player1,Player2,Turn,Board,Spects,Name) ->
 	case Turn of
 		true ->
                 receive
 				{movement,X,Y,User} -> if
 				                        User == Player1 -> case lists:nth((3*(X-1)+Y),Board) of
 								                                45 -> NewBoard = replace((3*(X-1)+Y),Board,"X"),
-																      global:send(Player1,{update,NewBoard,Player1}),
-																	  global:send(Player2,{update,NewBoard,Player1}),
+																      global:send(Player1,{update,NewBoard,Name}),
+																	  global:send(Player2,{update,NewBoard,Name}),
 																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Player1}) end,Spects),
                                                                       case someoneWon(NewBoard) of
-																            true -> global:send(Player1,{victory, Player1, Player1}),
-																	                global:send(Player2,{victory, Player1, Player1}),
-																	                lists:map(fun(S) -> global:send(S,{victory, Player1, Player1}) end,Spects);
-                                                   
+																            true -> global:send(Player1,{victory, Player1, Name}),
+																	                global:send(Player2,{victory, Player1, Name}),
+																	                lists:map(fun(S) -> global:send(S,{victory, Player1, Name}) end,Spects);
+
                                                                             false -> global:send(Player2,turn),
-																                     game(Player1,Player2,false,NewBoard,Spects)
+																                     game(Player1,Player2,false,NewBoard,Spects,Name)
                                                                       end;
 																 _  -> global:send(Player1,no_valid),
-                                                                       game(Player1,Player2,Turn,Board,Spects)
+                                                                       game(Player1,Player2,Turn,Board,Spects,Name)
 										                   end;
 											true -> global:send(User,no_valid),
-                                                    game(Player1,Player2,Turn,Board,Spects)
+                                                    game(Player1,Player2,Turn,Board,Spects,Name)
                                         end;
-				{spect,SpectUSer} -> game(Player1,Player2,Turn,Board,Spects++[SpectUSer]);
-                {end_spect,SpectUSer} -> game(Player1,Player2,Turn,Board,lists:filter(fun(X) -> SpectUSer /= X end,Spects));
+				{spect,SpectUSer} -> game(Player1,Player2,Turn,Board,Spects++[SpectUSer],Name);
+                {end_spect,SpectUSer} -> game(Player1,Player2,Turn,Board,lists:filter(fun(X) -> SpectUSer /= X end,Spects),Name);
                 {ending,UserName} -> global:send(UserName,you_end_game),
                                      if
                                         UserName == Player1 -> global:send(Player2,{opponent_end_game,UserName});
                                         true -> global:send(Player1,{opponent_end_game,UserName})
                                     end,
-                                    lists:map(fun(S) -> global:send(S,{end_spect,UserName,Player1}) end,Spects)
+                                    lists:map(fun(S) -> global:send(S,{end_spect,UserName,Name}) end,Spects)
 				end;
 		false ->
                 receive
 				{movement,X,Y,User} -> if
 				                        User == Player2 -> case lists:nth((3*(X-1)+Y),Board) of
 								                                45 -> NewBoard = replace((3*(X-1)+Y),Board,"O"),
-																      global:send(Player1,{update,NewBoard,Player1}),
-																	  global:send(Player2,{update,NewBoard,Player1}),
-																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Player1}) end,Spects),
+																      global:send(Player1,{update,NewBoard,Name}),
+																	  global:send(Player2,{update,NewBoard,Name}),
+																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Name}) end,Spects),
                                                                       case someoneWon(NewBoard) of
-																            true -> global:send(Player1,{victory, Player2, Player1}),
-																	                global:send(Player2,{victory, Player2, Player1}),
-																	                lists:map(fun(S) -> global:send(S,{victory, Player2, Player1}) end,Spects);
+																            true -> global:send(Player1,{victory, Player2, Name}),
+																	                global:send(Player2,{victory, Player2, Name}),
+																	                lists:map(fun(S) -> global:send(S,{victory, Player2, Name}) end,Spects);
                                                                             false -> global:send(Player1,turn),
-																                     game(Player1,Player2,true,NewBoard,Spects)
+																                     game(Player1,Player2,true,NewBoard,Spects,Name)
                                                                       end;
 																 _  -> global:send(Player2,no_valid),
-                                                                       game(Player1,Player2,Turn,Board,Spects)
+                                                                       game(Player1,Player2,Turn,Board,Spects,Name)
 										                   end;
 											true -> global:send(User,no_valid),
-                                                    game(Player1,Player2,Turn,Board,Spects)
+                                                    game(Player1,Player2,Turn,Board,Spects,Name)
                                         end;
                 {ending,UserName} -> global:send(UserName,you_end_game),
                                      if
@@ -327,8 +321,8 @@ game(Player1,Player2,Turn,Board,Spects) ->
                                         true -> global:send(Player1,{opponent_end_game,UserName})
                                     end,
                                     lists:map(fun(S) -> global:send(S,{end_spect,UserName,Player1}) end,Spects);
-                {end_spect,SpectUSer} -> game(Player1,Player2,Turn,Board,lists:filter(fun(X) -> SpectUSer /= X end,Spects));
-				{spect,SpectUSer} -> game(Player1,Player2,Turn,Board,Spects++[SpectUSer])
+                {end_spect,SpectUSer} -> game(Player1,Player2,Turn,Board,lists:filter(fun(X) -> SpectUSer /= X end,Spects),Name);
+				{spect,SpectUSer} -> game(Player1,Player2,Turn,Board,Spects++[SpectUSer],Name)
 				end
 	end.
 
@@ -347,9 +341,9 @@ change(X) ->
 
 actualization(Game,GameName,UserName) ->
 	case Game of
-    {P1,P2,G,N} -> if P1 == GameName -> {P1,UserName,G,N};
-		                 true -> {P1,P2,G,N}
-		           end
+    {GN,P1,P2} -> if GN == GameName -> {GN,P1,UserName};
+		                true -> {GN,P1,P2}
+		          end
   end.
 
 % Atom_to_integer transforma un atomo en un entero
@@ -361,28 +355,28 @@ atom_to_integer(Num) ->
 
 match_print(G) ->
 	case G of
-		{P1,none,_,_} -> io_lib:format("La partida de ~p busca contricante ~n",[P1]);
-		{P1,P2,_,_} -> io_lib:format("La partida de ~p esta en curso. ~p VS ~p ~n",[P1,P1,P2])
+		{GameName,P1,none} -> io_lib:format("La partida de ~p busca contricante, el nombre es ~p~n",[P1,GameName]);
+		{GameName,P1,P2} -> io_lib:format("La partida de ~p esta en curso. ~p VS ~p, el nombre es ~p~n",[P1,P1,P2,GameName])
 	end.
 
 % someoneWon verifica si alguien gano al realizar su movimiento
 
-someoneWon(Board) -> 
+someoneWon(Board) ->
     rowWin(Board) or columnWin(Board) or diagWin(Board).
 
 rowWin(Board) ->
-    ((lists:nth(1,Board) == lists:nth(2,Board)) and (lists:nth(2,Board) == lists:nth(3,Board)) and (lists:nth(1,Board) /= 45)) or 
-    ((lists:nth(4,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(6,Board)) and (lists:nth(4,Board) /= 45)) or 
-    ((lists:nth(7,Board) == lists:nth(8,Board)) and (lists:nth(8,Board) == lists:nth(9,Board)) and (lists:nth(7,Board) /= 45)). 
+    ((lists:nth(1,Board) == lists:nth(2,Board)) and (lists:nth(2,Board) == lists:nth(3,Board)) and (lists:nth(1,Board) /= 45)) or
+    ((lists:nth(4,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(6,Board)) and (lists:nth(4,Board) /= 45)) or
+    ((lists:nth(7,Board) == lists:nth(8,Board)) and (lists:nth(8,Board) == lists:nth(9,Board)) and (lists:nth(7,Board) /= 45)).
 
 columnWin(Board) ->
-    ((lists:nth(1,Board) == lists:nth(4,Board)) and (lists:nth(4,Board) == lists:nth(7,Board)) and (lists:nth(1,Board) /= 45)) or 
-    ((lists:nth(2,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(8,Board)) and (lists:nth(2,Board) /= 45)) or 
-    ((lists:nth(3,Board) == lists:nth(6,Board)) and (lists:nth(6,Board) == lists:nth(9,Board)) and (lists:nth(3,Board) /= 45)). 
+    ((lists:nth(1,Board) == lists:nth(4,Board)) and (lists:nth(4,Board) == lists:nth(7,Board)) and (lists:nth(1,Board) /= 45)) or
+    ((lists:nth(2,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(8,Board)) and (lists:nth(2,Board) /= 45)) or
+    ((lists:nth(3,Board) == lists:nth(6,Board)) and (lists:nth(6,Board) == lists:nth(9,Board)) and (lists:nth(3,Board) /= 45)).
 
 diagWin(Board) ->
-    ((lists:nth(1,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(9,Board)) and (lists:nth(1,Board) /= 45)) or 
-    ((lists:nth(7,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(3,Board)) and (lists:nth(7,Board) /= 45)). 
+    ((lists:nth(1,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(9,Board)) and (lists:nth(1,Board) /= 45)) or
+    ((lists:nth(7,Board) == lists:nth(5,Board)) and (lists:nth(5,Board) == lists:nth(3,Board)) and (lists:nth(7,Board) /= 45)).
 
 % Is_in verifica si un usuario ya tiene una partida activa
 
