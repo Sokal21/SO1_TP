@@ -1,10 +1,6 @@
 -module(server).
 -compile(export_all).
 
-%% BYE
-%% Malos argumentos de los clientes
-%% flopiTURN
-
 % Start facilita la creacion de los servers
 
 start(Name,Port) ->
@@ -227,7 +223,7 @@ match_adm(Games) ->
                                          false -> gloabl:send(UserName,no_rights_game)
                                      end
                               end;
-		{spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({G,_,_,_,_}) -> Game == G end,Games),
+		{spect,Game,UserName,PidCom} -> PosibleGame = lists:filter(fun({G,_,_}) -> Game == G end,Games),
 		                                case PosibleGame of
                                             [] -> PidCom!no_valid;
                                             _  -> {G,_,_} = lists:nth(1,PosibleGame),
@@ -244,8 +240,12 @@ match_adm(Games) ->
                                             end;
 		{refresh,NewGame} -> match_adm(Games++NewGame);
 		{join_refresh,Game,UserName} -> match_adm(lists:map(fun(X) -> actualization(X,Game,UserName) end,Games));
-        {movement,Game,X,Y,UserName,PidCom} -> PidCom!well_delivered,
-                                               global:send(Game,{movement,X,Y,UserName});
+        {movement,Game,X,Y,UserName,PidCom} -> PosibleGame = lists:filter(fun({G,_,_}) -> Game == G end, Games),
+                                               case PosibleGame of
+                                                   [] -> PidCom!no_valid;
+                                                   _ -> PidCom!well_delivered,
+                                                        global:send(Game,{movement,X,Y,UserName})
+                                                end;
 		{list,PidCom} -> PidCom!{list,Games},match_adm(Games)
   end,
   match_adm(Games).
@@ -270,7 +270,7 @@ game(Player1,Player2,Turn,Board,Spects,Name) ->
 								                                45 -> NewBoard = replace((3*(X-1)+Y),Board,"X"),
 																      global:send(Player1,{update,NewBoard,Name}),
 																	  global:send(Player2,{update,NewBoard,Name}),
-																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Player1}) end,Spects),
+																	  lists:map(fun(S) -> global:send(S,{update,NewBoard,Name}) end,Spects),
                                                                       case someoneWon(NewBoard) of
 																            true -> global:send(Player1,{victory, Player1, Name}),
 																	                global:send(Player2,{victory, Player1, Name}),

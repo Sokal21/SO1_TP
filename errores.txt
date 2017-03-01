@@ -1,0 +1,2 @@
+Cantidad de argumentos de los comandos
+Ver cuando una personita quiere jugar una partida en la que no es jugador

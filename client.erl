@@ -16,7 +16,7 @@ console (Socket,UserName) ->
     receive 
         {newPrompt, NewUserName} -> console(Socket, NewUserName);
          continue                -> console(Socket, UserName);
-         close                   -> exit(log_out)
+         close                   -> exit(normal)
     end.
 
 %% Constantly listening messages/responses from server.
@@ -28,7 +28,7 @@ listener (Socket, Pid) ->
                                                print_table (lists:nth(2, TokenList),GameName);
                         "EXIT"              -> io:format("Te has retirado del servidor ~n"),
                                                Pid!close,
-                                               exit(log_out);
+                                               exit(normal);
                         "GAME"              -> io:format("Tu sala ha sido creada exitosamente.~n");
                         "TURN"              -> io:format("Es tu turno. ~n");
                         "SPECT_OK"          -> io:format("Has logrado entrar como espectador a la partida. ~n");
